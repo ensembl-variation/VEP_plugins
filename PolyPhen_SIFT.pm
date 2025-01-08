@@ -40,6 +40,9 @@ limitations under the License.
  # Create PolyPhen/SIFT SQLite file based on Ensembl database
  ./vep -i variations.vcf -cache --plugin PolyPhen_SIFT,create_db=1
 
+ # Only get SIFT prediction and score
+ ./vep -i variations.vcf -cache --plugin PolyPhen_SIFT,db=custom.db,polyphen=o,humdiv=o
+
 =head1 DESCRIPTION
 
  A VEP plugin that retrieves PolyPhen and SIFT predictions from a
@@ -72,6 +75,20 @@ limitations under the License.
  specify any parameters to load the appropriate file based on the species:
 
  --plugin PolyPhen_SIFT
+
+ By default, this plugin gives SIFT score and prediction, Polyphen humvar and
+ humdiv score and prediction. You can manipulate what you want using the following 
+ options -
+
+  sift      [p|s|b|o] provides SIFT prediction term, score, or both if the value is
+            respectively 'p', 's', or 'b'. If the value is 'o' then do not provide SIFT
+            prediction or score. Default value is 'b'.
+  polyphen  [p|s|b|o] provides PolyPhen humvar prediction term, score, or both if the 
+            value is respectively 'p', 's', or 'b'. If the value is 'o' then do not 
+            provide PolyPhen humvar prediction or score. Default value is 'b'.
+  humdiv    [p|s|b|o] provides PolyPhen humdiv prediction term, score, or both if the 
+            value is respectively 'p', 's', or 'b'. If the value is 'o' then do not 
+            provide PolyPhen humdiv prediction or score. Default value is 'b'.
 
 =cut
 
@@ -142,6 +159,10 @@ sub new {
   my $param_hash = $self->params_to_hash();
 
   my $species = $self->config->{species} || 'homo_sapiens';
+  $self->{sift} = $param_hash->{sift} || 'b';
+  $self->{polyphen} = $param_hash->{polyphen} || 'b';
+  $self->{humdiv} = $param_hash->{humdiv} || 'b';
+
   my $dir = $param_hash->{dir} || $self->{config}->{dir};
   my $db = $param_hash->{db} || $dir.'/'.$species.'.PolyPhen_SIFT.db';
 
@@ -174,14 +195,17 @@ sub feature_types {
 }
 
 sub get_header_info {
-  return {
-    PolyPhen_humdiv_score => 'PolyPhen humdiv score from PolyPhen_SIFT plugin',
-    PolyPhen_humdiv_pred  => 'PolyPhen humdiv prediction from PolyPhen_SIFT plugin',
-    PolyPhen_humvar_score => 'PolyPhen humvar score from PolyPhen_SIFT plugin',
-    PolyPhen_humvar_pred  => 'PolyPhen humvar prediction from PolyPhen_SIFT plugin',
-    SIFT_score            => 'SIFT score from PolyPhen_SIFT plugin',
-    SIFT_pred             => 'SIFT prediction from PolyPhen_SIFT plugin',
-  };
+  my ($self) = shift;
+  my %header;
+
+  $header{PolyPhen_humdiv_score}  = 'PolyPhen humdiv score from PolyPhen_SIFT plugin' if $self->{humdiv} eq 'b' || $self->{humdiv} eq 's';
+  $header{PolyPhen_humdiv_pred}   = 'PolyPhen humdiv prediction from PolyPhen_SIFT plugin' if $self->{humdiv} eq 'b' || $self->{humdiv} eq 'p';
+  $header{PolyPhen_humvar_score}  = 'PolyPhen humvar score from PolyPhen_SIFT plugin' if $self->{polyphen} eq 'b' || $self->{polyphen} eq 's';
+  $header{PolyPhen_humvar_pred}   = 'PolyPhen humvar prediction from PolyPhen_SIFT plugin' if $self->{polyphen} eq 'b' || $self->{polyphen} eq 'p';
+  $header{SIFT_score}             = 'SIFT score from PolyPhen_SIFT plugin' if $self->{sift} eq 'b' || $self->{sift} eq 's';
+  $header{SIFT_pred}              = 'SIFT prediction from PolyPhen_SIFT plugin' if $self->{sift} eq 'b' || $self->{sift} eq 'p'; 
+  
+  return \%header;
 }
 
 sub run {
@@ -250,16 +274,21 @@ sub run {
     my ($tool, $analysis) = split('_', $tool_string);
     my $lc_tool = lc($tool);
 
-    my $pred_meth  = $lc_tool.'_prediction';
-    my $score_meth = $lc_tool.'_score';
+    my $check_mode = defined $analysis && $analysis eq 'humdiv' ? $analysis : $lc_tool;
+    my $pred_meth  = $lc_tool.'_prediction' if ($self->{$check_mode} eq 'b' || $self->{$check_mode} eq 'p');
+    my $score_meth = $lc_tool.'_score' if ($self->{$check_mode} eq 'b' || $self->{$check_mode} eq 's');
 
-    my $pred = $tva->$pred_meth($analysis);
+    if (defined $pred_meth) {
+      my $pred = $tva->$pred_meth($analysis);
 
-    if($pred) {
-      $pred =~ s/\s+/\_/g;
-      $pred =~ s/\_\-\_/\_/g;
-      $return->{$tool_string.'_pred'} = $pred;
+      if($pred) {
+        $pred =~ s/\s+/\_/g;
+        $pred =~ s/\_\-\_/\_/g;
+        $return->{$tool_string.'_pred'} = $pred;
+      }
+    }
 
+    if (defined $score_meth) {
       my $score = $tva->$score_meth($analysis);
       $return->{$tool_string.'_score'} = $score if defined($score);
     }
