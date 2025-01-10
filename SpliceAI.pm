@@ -36,6 +36,7 @@ limitations under the License.
  A VEP plugin that retrieves pre-calculated annotations from SpliceAI.
  SpliceAI is a deep neural network, developed by Illumina, Inc 
  that predicts splice junctions from an arbitrary pre-mRNA transcript sequence.
+ By default, this plugin appends all scores from SpliceAI files.
 
  Delta score of a variant, defined as the maximum of (DS_AG, DS_AL, DS_DG, DS_DL), 
  ranges from 0 to 1 and can be interpreted as the probability of the variant being 
@@ -53,33 +54,36 @@ limitations under the License.
  https://www.ncbi.nlm.nih.gov/pubmed/30661751
 
  Running options:
- (1) By default, this plugin appends all scores from SpliceAI files.
- (2) Besides the pre-calculated scores, it can also be specified a score
- cutoff between 0 and 1.
+
+  cutoff       : Only return the scores for the speficied cutoff
+                 Accepted values are between 0 and 1
+
+  split_output : Return each type of score in a different header.
+                 This is easier for parsing the output file.
 
  Output: 
   The output includes the gene symbol, delta scores (DS) and delta positions (DP)
   for acceptor gain (AG), acceptor loss (AL), donor gain (DG), and donor loss (DL).
 
-  - For tab the output contains one header 'SpliceAI_pred' with all
+  - For tab the output contains one header "SpliceAI_pred" with all
     the delta scores and positions. The format is:
-      'SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL'
+      "SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL"
 
   - For JSON the output is a hash with the following format:
     "spliceai":
       {"DP_DL":0,"DS_AL":0,"DP_AG":0,"DS_DL":0,"SYMBOL":"X","DS_AG":0,"DP_AL":0,"DP_DG":0,"DS_DG":0}
 
-  - For VCF output the delta scores and positions are stored in different headers.
-    The values are 'SpliceAI_pred_xx' being 'xx' the score/position.
-      Example: 'SpliceAI_pred_DS_AG' is the delta score for acceptor gain.
+  - For VCF output and option 'split_output' the delta scores and positions are stored in different headers.
+    The values are "SpliceAI_pred_xx" being "xx" the score/position.
+      Example: "SpliceAI_pred_DS_AG" is the delta score for acceptor gain.
 
   Gene matching:
   SpliceAI can contain scores for multiple genes that overlap a variant,
   and VEP can also predict consequences on multiple genes for a given variant.
   The plugin only returns SpliceAI scores for the gene symbols that match (if any).
 
- If plugin is run with option 2, the output also contains a flag: 'PASS' if delta score
- passes the cutoff, 'FAIL' otherwise. 
+ If plugin is run with option 2, the output also contains a flag: "PASS" if delta score
+ passes the cutoff, "FAIL" otherwise. 
 
  The following steps are necessary before running this plugin:
 
@@ -98,6 +102,7 @@ limitations under the License.
  The plugin can then be run:
  ./vep -i variations.vcf --plugin SpliceAI,snv=/path/to/spliceai_scores.raw.snv.hg38.vcf.gz,indel=/path/to/spliceai_scores.raw.indel.hg38.vcf.gz
  ./vep -i variations.vcf --plugin SpliceAI,snv=/path/to/spliceai_scores.raw.snv.hg38.vcf.gz,indel=/path/to/spliceai_scores.raw.indel.hg38.vcf.gz,cutoff=0.5
+  ./vep -i variations.vcf --plugin SpliceAI,snv=/path/to/spliceai_scores.raw.snv.hg38.vcf.gz,indel=/path/to/spliceai_scores.raw.indel.hg38.vcf.gz,split_output=1
 
 =cut
 
@@ -141,11 +146,15 @@ sub new {
     $output_vcf = 1;
   }
 
+  if(defined($param_hash->{split_output})) {
+    $self->{split_output} = 1;
+  }
+
   return $self;
 }
 
 sub feature_types {
-  return ['Transcript'];
+  return ["Transcript"];
 }
 
 sub get_header_info {
@@ -153,24 +162,39 @@ sub get_header_info {
 
   my %header;
 
-  if($output_vcf) {
-    $header{'SpliceAI_pred_SYMBOL'} = 'SpliceAI gene symbol';
-    $header{'SpliceAI_pred_DS_AG'} = 'SpliceAI predicted effect on splicing. Delta score for acceptor gain';
-    $header{'SpliceAI_pred_DS_AL'} = 'SpliceAI predicted effect on splicing. Delta score for acceptor loss';
-    $header{'SpliceAI_pred_DS_DG'} = 'SpliceAI predicted effect on splicing. Delta score for donor gain';
-    $header{'SpliceAI_pred_DS_DL'} = 'SpliceAI predicted effect on splicing. Delta score for donor loss';
-    $header{'SpliceAI_pred_DP_AG'} = 'SpliceAI predicted effect on splicing. Delta position for acceptor gain';
-    $header{'SpliceAI_pred_DP_AL'} = 'SpliceAI predicted effect on splicing. Delta position for acceptor loss';
-    $header{'SpliceAI_pred_DP_DG'} = 'SpliceAI predicted effect on splicing. Delta position for donor gain';
-    $header{'SpliceAI_pred_DP_DL'} = 'SpliceAI predicted effect on splicing. Delta position for donor loss';
+  # Get the SpliceAI tool version from one of the files
+  my $spliceai_version;
+  my $spliceai_file = $self->{_files}[0];
+  open(my $fh, "tabix -H $spliceai_file |") or die "Could not open '$spliceai_file': $!";
+    while (my $line = <$fh>) {
+      last if $line !~ /^#/;
+      if ($line =~ /^##INFO/) {
+          if ($line =~ /(SpliceAIv[\d.]+)/) {
+            $spliceai_version = $1;
+            $spliceai_version =~ s/SpliceAI//;
+        }
+      }
+    }
+  close($fh);
+
+  if($output_vcf || $self->{split_output}) {
+    $header{"SpliceAI_pred_SYMBOL"} = "SpliceAI ($spliceai_version) gene symbol";
+    $header{"SpliceAI_pred_DS_AG"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta score for acceptor gain";
+    $header{"SpliceAI_pred_DS_AL"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta score for acceptor loss";
+    $header{"SpliceAI_pred_DS_DG"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta score for donor gain";
+    $header{"SpliceAI_pred_DS_DL"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta score for donor loss";
+    $header{"SpliceAI_pred_DP_AG"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta position for acceptor gain";
+    $header{"SpliceAI_pred_DP_AL"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta position for acceptor loss";
+    $header{"SpliceAI_pred_DP_DG"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta position for donor gain";
+    $header{"SpliceAI_pred_DP_DL"} = "SpliceAI ($spliceai_version) predicted effect on splicing. Delta position for donor loss";
   }
 
   else {
-    $header{'SpliceAI_pred'} = 'SpliceAI predicted effect on splicing. These include delta scores (DS) and delta positions (DP) for acceptor gain (AG), acceptor loss (AL), donor gain (DG), and donor loss (DL). Format: SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL';
+    $header{"SpliceAI_pred"} = "SpliceAI ($spliceai_version) predicted effect on splicing. These include delta scores (DS) and delta positions (DP) for acceptor gain (AG), acceptor loss (AL), donor gain (DG), and donor loss (DL). Format: SYMBOL|DS_AG|DS_AL|DS_DG|DS_DL|DP_AG|DP_AL|DP_DG|DP_DL";
   }
 
   if($self->{cutoff}) {
-    $header{'SpliceAI_cutoff'} = 'Flag if delta score pass the cutoff (PASS) or if it does not (FAIL)';
+    $header{"SpliceAI_cutoff"} = "Flag if delta score pass the cutoff (PASS) or if it does not (FAIL)";
   }
 
   return \%header;
@@ -189,7 +213,7 @@ sub run {
 
   return {} unless(@data);
 
-  my $result_data = '';
+  my $result_data = "";
   my $result_flag;
 
   # Store all SpliceAI results
@@ -218,34 +242,34 @@ sub run {
     if ($start == $data_value->{start} && $ref_allele eq $data_value->{ref} && $alt_allele eq $data_value->{alt}) {
       my %hash;
 
-      if($output_vcf || $self->{config}->{output_format} eq "json" || $self->{config}->{rest})  {
+      if($output_vcf || $self->{config}->{output_format} eq "json" || $self->{config}->{rest} || $self->{split_output})  {
         my @data_values = split /\|/, $data_value->{result};
-        my $prefix ="";
-        $prefix = "SpliceAI_pred_" if $output_vcf;
-        $hash{$prefix. 'SYMBOL'} = $data_values[0];
-        $hash{$prefix. 'DS_AG'} = $data_values[1];
-        $hash{$prefix. 'DS_AL'} = $data_values[2];
-        $hash{$prefix. 'DS_DG'} = $data_values[3];
-        $hash{$prefix. 'DS_DL'} = $data_values[4];
-        $hash{$prefix. 'DP_AG'} = $data_values[5];
-        $hash{$prefix. 'DP_AL'} = $data_values[6];
-        $hash{$prefix. 'DP_DG'} = $data_values[7];
-        $hash{$prefix. 'DP_DL'} = $data_values[8];
+        my $prefix = "";
+        $prefix = "SpliceAI_pred_" if($output_vcf || ($self->{split_output} && $self->{config}->{output_format} ne "json"));
+        $hash{$prefix. "SYMBOL"} = $data_values[0];
+        $hash{$prefix. "DS_AG"} = $data_values[1];
+        $hash{$prefix. "DS_AL"} = $data_values[2];
+        $hash{$prefix. "DS_DG"} = $data_values[3];
+        $hash{$prefix. "DS_DL"} = $data_values[4];
+        $hash{$prefix. "DP_AG"} = $data_values[5];
+        $hash{$prefix. "DP_AL"} = $data_values[6];
+        $hash{$prefix. "DP_DG"} = $data_values[7];
+        $hash{$prefix. "DP_DL"} = $data_values[8];
       }
 
       else {
-        $hash{'SpliceAI_pred'} = $data_value->{result};
+        $hash{"SpliceAI_pred"} = $data_value->{result};
       }
 
       # Add a flag if cutoff is used
       if($self->{cutoff}) {
         if($data_value->{info} >= $self->{cutoff}) {
-          $result_flag = 'PASS';
+          $result_flag = "PASS";
         }
         else {
-          $result_flag = 'FAIL';
+          $result_flag = "FAIL";
         }
-        $hash{'SpliceAI_cutoff'} = $result_flag;
+        $hash{"SpliceAI_cutoff"} = $result_flag;
       }
 
       $hash_aux{$data_value->{gene}} = \%hash;
