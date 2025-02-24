@@ -1358,7 +1358,8 @@ sub read_gene_data_from_file {
         my $confidence_category = $tmp{"DDD category"} || $tmp{"confidence category"}; # deprecate use of DDD category
         next if (!grep{$_ eq $confidence_category} @confidence_levels);
         my $gene_symbol = $tmp{"gene symbol"};
-        push @{$gene_data{$gene_symbol}->{"gene_xrefs"}}, split(';', $tmp{"prev symbols"});
+        push @{$gene_data{$gene_symbol}->{"gene_xrefs"}}, split(';', $tmp{"prev symbols"}) if defined($tmp{"prev symbols"});
+        push @{$gene_data{$gene_symbol}->{"gene_xrefs"}}, split(';', $tmp{"previous gene symbols"}) if defined($tmp{"previous gene symbols"});
         push @{$gene_data{$gene_symbol}->{"gene_xrefs"}}, $tmp{"gene symbol"};
         push @{$gene_data{$gene_symbol}->{"HGNC"}}, $tmp{"hgnc id"};
         push @{$gene_data{$gene_symbol}->{"confidence_category"}}, $confidence_category;
