@@ -71,9 +71,13 @@ limitations under the License.
  resource: https://pubmed.ncbi.nlm.nih.gov/36747048
 
  The tabix utility must be installed in your path to use this plugin. The
- SpliceVault TSV and respective index (TBI) for GRCh38 can be downloaded from:
+ SpliceVault TSV and respective index (TBI) for GRCh38 can be downloaded from here:
  - https://ftp.ensembl.org/pub/current_variation/SpliceVault/SpliceVault_data_GRCh38.tsv.gz
  - https://ftp.ensembl.org/pub/current_variation/SpliceVault/SpliceVault_data_GRCh38.tsv.gz.tbi
+
+  and, for GRCh37 assembly can be downloaded from here:
+ - https://ftp.ensembl.org/pub/current_variation/SpliceVault/SpliceVault_data_hg19.tsv.gz
+ - https://ftp.ensembl.org/pub/current_variation/SpliceVault/SpliceVault_data_hg19.tsv.gz.tbi
 
  To filter results, please use filter_vep with the output file or standard
  output. Documentation on filter_vep is available at:
