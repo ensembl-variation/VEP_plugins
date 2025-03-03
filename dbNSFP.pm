@@ -182,10 +182,13 @@ sub new {
   } elsif ($file =~ /4\.0b1/) {
     # special case: different name for location column
     $version = '4.0.1';
-  } elsif ($file =~ /4\./) {
-    $version = '4';
-  } elsif ($file =~ /3\./) {
-    $version = 3;
+  } elsif ($file =~ /([3-9]\.\d+(?:\.\d+)?[ac])/) {
+    # prioritise versions with explicit 'a' or 'c' suffix
+    $version = $1;
+  } elsif ($file =~ /([3-9]\.\d+(?:\.\d+)?)/) {
+    # fallback to general version, warn user
+    $version = $1;
+    warn "WARNING: Specific suffix 'a' or 'c' not found for version $version. Proceeding with general version.\n";
   } else {
     die "ERROR: Could not retrieve dbNSFP version from filename $file\n";
   }
